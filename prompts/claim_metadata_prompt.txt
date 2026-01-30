@@ -1,0 +1,85 @@
+You are an information extraction system.
+
+Your task is to extract ONLY the required claim fields from the OCR text below.
+
+-----------------------------------
+EXPECTED OUTPUT FORMAT
+-----------------------------------
+
+Return ONLY valid JSON in the following schema.
+Do NOT include explanations, comments, or extra text.
+
+{
+  "Case Number": null,
+  "DOS (Date of Service)": null,
+  "DOA (Date of Accident)": null,
+  "Case Identifier": null,
+  "Claimant": null,
+  "Applicant / Provider": null,
+  "Carrier": null,
+  "Arbitrator": null,
+  "Hearing Date & Time": null,
+  "Amount in Dispute": null,
+  "Insurer Claim Number": null
+}
+
+-----------------------------------
+EXTRACTION RULES
+-----------------------------------
+
+1. Extract values EXACTLY as they appear in the OCR text.
+2. Do NOT guess or infer values.
+3. If a field is not found, return null.
+4. Preserve original formatting (dates, currency symbols, ranges).
+5. Do NOT normalize, split, or calculate values.
+6. Do NOT combine multiple fields into one.
+
+-----------------------------------
+FIELD-SPECIFIC GUIDANCE
+-----------------------------------
+
+• Case Number:
+  - May appear as "Case Number", "Case No.", "Arbitration No."
+
+• DOS (Date of Service):
+  - May appear as:
+    - "Date Of Service"
+    - "Date(s) of Service"
+    - "DOS"
+  - Value may be:
+    - A single date
+    - OR a date range (example: "01/25/2024 - 01/29/2024")
+  - If a date range is present, return it EXACTLY as written.
+
+• DOA (Date of Accident):
+  - May appear as "Date of Accident", "DOA"
+
+• Case Identifier:
+  - Arbitration reference, internal identifier, or docket number
+
+• Claimant:
+  - Injured person or patient name
+
+• Applicant / Provider:
+  - Medical provider or billing entity
+
+• Carrier:
+  - Insurance carrier name
+
+• Arbitrator:
+  - Arbitrator or assigned judge
+
+• Hearing Date & Time:
+  - Include both date and time if present
+
+• Amount in Dispute:
+  - Total disputed amount (preserve currency symbols)
+
+• Insurer Claim Number:
+  - Insurance claim or carrier claim number
+
+-----------------------------------
+OCR TEXT
+-----------------------------------
+
+{{OCR_TEXT}}

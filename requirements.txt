@@ -1,0 +1,13 @@
+paddleocr
+paddlepaddle
+pdfplumber
+PyMuPDF
+pytesseract
+python-docx
+opencv-python
+numpy
+pandas
+requests
+ollama
+transformers
+langchain

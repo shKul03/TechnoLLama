@@ -1,0 +1,11 @@
+{
+  "columns": [
+    { "key": "procedure_code", "label": "CPT Code" },
+    { "key": "charges", "label": "Calculated Fee" },
+    { "key": "modifier", "label": "Modifier" },
+    { "key": "rvu", "label": "RVU", "value": 6 },
+    { "key": "conversion_factor", "label": "Conversion Factor", "value": 9.55 },
+    { "key": "schedule", "label": "Schedule" },
+    { "key": "units", "label": "Units" }   
+  ]
+}
