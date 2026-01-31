@@ -1,12 +1,16 @@
 from __future__ import annotations
 import json
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, Literal
+
+
+DocumentType = Literal["invoice", "expense", "unknown"]
+
 
 class OllamaClient:
     def __init__(
         self,
-        host: str = "http://127.0.0.1:11434",
+        host: str = "http://localhost:11434",
         model: str = "llama3.2:3b",
         temperature: float = 0.0,
         context_size: int = 8192,
@@ -22,6 +26,9 @@ class OllamaClient:
             "num_predict": max_tokens,
         }
 
+    # -----------------------------
+    # Generic JSON extractor
+    # -----------------------------
     def extract_json(
         self,
         system_prompt: str,
@@ -30,6 +37,61 @@ class OllamaClient:
         response_text = self._chat(system_prompt, user_content)
         return self._safe_json_parse(response_text)
 
+    # -----------------------------
+    # STEP 1: Document classification
+    # -----------------------------
+    def classify_bill(
+        self,
+        classifier_prompt: str,
+        ocr_text: str,
+    ) -> Dict[str, Any]:
+        """
+        Expected output:
+        {
+          "document_type": "invoice" | "expense" | "unknown",
+          "category": "...",
+          "confidence": "low" | "medium" | "high"
+        }
+        """
+        return self.extract_json(
+            system_prompt=classifier_prompt,
+            user_content=ocr_text,
+        )
+
+    # -----------------------------
+    # STEP 2: Domain extraction
+    # -----------------------------
+    def extract_financial_document(
+        self,
+        document_type: DocumentType,
+        ocr_text: str,
+        invoice_prompt: str,
+        expense_prompt: str,
+    ) -> Dict[str, Any]:
+        if document_type == "invoice":
+            return self.extract_json(invoice_prompt, ocr_text)
+
+        if document_type == "expense":
+            return self.extract_json(expense_prompt, ocr_text)
+
+        raise ValueError("Unsupported or unknown document type")
+
+    # -----------------------------
+    # Optional STEP 3: API mapping
+    # -----------------------------
+    def transform_to_api_payload(
+        self,
+        api_prompt: str,
+        structured_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return self.extract_json(
+            system_prompt=api_prompt,
+            user_content=json.dumps(structured_data),
+        )
+
+    # -----------------------------
+    # Low-level chat call
+    # -----------------------------
     def _chat(self, system_prompt: str, user_content: str) -> str:
         payload = {
             "model": self.model,

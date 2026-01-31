@@ -1,106 +1,127 @@
 import json
-from llm.ollama_client import OllamaClient
-from extractors.claim_metadata_extractor import ClaimMetadataExtractor
-from extractors.lineitems_pdf_extractor import LineItemsPdfExtractor
-from extractors.lineitems_llm_extractor import LineItemsLLMExtractor
-from reporting.word_report_builder import WordReportBuilder
 from pathlib import Path
+
+from llm.ollama_client import OllamaClient
 
 # ===============================
 # PATH CONFIGURATION
 # ===============================
-DATA_DIR = Path("data")
+
+BASE_DIR = Path(".")
+DATA_DIR = BASE_DIR / "data"
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
-INTERMEDIATE_DIR = DATA_DIR / "pipeline_outputs"
-SAMPLE_PDF = INPUT_DIR / "sample.pdf"
-LINEITEMS_PDF = INPUT_DIR / "LineItems_PDF.pdf"
-LINEITEMS_JSON = INTERMEDIATE_DIR / "extracted_LineItems_data.json"
-LLM_OUTPUT_JSON = INTERMEDIATE_DIR / "llm_lineitems.json"
-PROMPT_CLAIM = Path("prompts/claim_metadata_prompt.txt")
-PROMPT_LINEITEMS = Path("prompts/line_items_prompt.txt")
-LINEITEM_CONFIG = Path("config/line_results_config.json")
-FINAL_DOC = OUTPUT_DIR / "claim_summary.docx"
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# -------- Inputs --------
+BILL_OCR_TEXT = INPUT_DIR / "bill_ocr.txt"
+
+# -------- Prompts --------
+PROMPT_BILL_CLASSIFIER = Path("prompts/classifier/bill_classifier.txt")
+PROMPT_INVOICE_EXTRACT = Path("prompts/extractors/invoice_extraction_prompt.txt")
+PROMPT_EXPENSE_EXTRACT = Path("prompts/extractors/expense_extraction_prompt.txt")
+PROMPT_INVOICE_API = Path("prompts/netsuite/invoice_netsuite_prompt.txt")
+PROMPT_EXPENSE_API = Path("prompts/netsuite/expense_netsuite_prompt.txt")
+
+# -------- Outputs --------
+FINAL_JSON = OUTPUT_DIR / "bill_api_payload.json"
+
+
+# ===============================
+# UTILS
+# ===============================
 
 def assert_file(path: Path):
     if not path.exists():
         raise FileNotFoundError(f"Missing required file: {path}")
-# ==============================
+
+
+def load_prompt(path: Path) -> str:
+    assert_file(path)
+    return path.read_text(encoding="utf-8")
+
+
+# ===============================
 # MAIN PIPELINE
 # ===============================
+
 def main():
-    print("\n Starting AI Claim Processing Pipeline\n")
+    print("\n🚀 Starting Bill Processing Pipeline\n")
+
     # -------------------------------
-    # PRE VALIDATIONS
+    # VALIDATION
     # -------------------------------
-    assert_file(SAMPLE_PDF)
-    assert_file(LINEITEMS_PDF)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    assert_file(BILL_OCR_TEXT)
+
+    # -------------------------------
+    # INIT LLM CLIENT
+    # -------------------------------
     ollama = OllamaClient(model="llama3.2:3b")
+
     # -------------------------------
-    # STEP 1: CLAIM METADATA
+    # LOAD PROMPTS (PATHS DEFINED ABOVE)
     # -------------------------------
-    print("Extracting claim metadata...")
-    claim_prompt = PROMPT_CLAIM.read_text(encoding="utf-8")
-    claim_extractor = ClaimMetadataExtractor(
-        ollama_client=ollama,
-        prompt_text=claim_prompt,
-        intermediate_dir=INTERMEDIATE_DIR
+    classifier_prompt = load_prompt(PROMPT_BILL_CLASSIFIER)
+    invoice_extract_prompt = load_prompt(PROMPT_INVOICE_EXTRACT)
+    expense_extract_prompt = load_prompt(PROMPT_EXPENSE_EXTRACT)
+    invoice_api_prompt = load_prompt(PROMPT_INVOICE_API)
+    expense_api_prompt = load_prompt(PROMPT_EXPENSE_API)
+
+    # -------------------------------
+    # READ OCR TEXT
+    # -------------------------------
+    ocr_text = BILL_OCR_TEXT.read_text(encoding="utf-8")
+
+    # -------------------------------
+    # STEP 1: CLASSIFY BILL
+    # -------------------------------
+    classification = ollama.classify_bill(
+        classifier_prompt=classifier_prompt,
+        ocr_text=ocr_text,
     )
-    claim_metadata = claim_extractor.extract(SAMPLE_PDF)
-    if not any(v for v in claim_metadata.values()):
-        print("Warning: Claim metadata extraction returned empty values")
+
+    document_type = classification.get("document_type")
+    confidence = classification.get("confidence")
+
+    print(f"→ Classified as: {document_type} (confidence: {confidence})")
+
+    if document_type not in {"invoice", "expense"}:
+        raise ValueError("Unsupported or unknown bill type")
+
     # -------------------------------
-    # STEP 2: LINE ITEMS PDF → PAGE-WISE JSON
+    # STEP 2: EXTRACT STRUCTURED DATA
     # -------------------------------
-    print("\n Extracting line items PDF (OCR + tables)")
-    pdf_extractor = LineItemsPdfExtractor()
-    pdf_extractor.extract(
-        pdf_path=LINEITEMS_PDF,
-        output_json=LINEITEMS_JSON,
+    structured_data = ollama.extract_financial_document(
+        document_type=document_type,
+        ocr_text=ocr_text,
+        invoice_prompt=invoice_extract_prompt,
+        expense_prompt=expense_extract_prompt,
     )
-    print(f"Line items page-wise JSON saved → {LINEITEMS_JSON}")
+
     # -------------------------------
-    # STEP PAGE-WISE JSON → STRUCTURED LINE ITEMS
+    # STEP 3: CONVERT TO API FORMAT
     # -------------------------------
-    print("\n Extracting structured line items via LLM")
-    line_prompt = PROMPT_LINEITEMS.read_text(encoding="utf-8")
-    line_items_extractor = LineItemsLLMExtractor(
-        ollama_client=ollama,
-        prompt_text=line_prompt,
-    )
-    line_items_json = line_items_extractor.extract(LINEITEMS_JSON)
-    print("\n LLM Line Items JSON:")
-    with open(LLM_OUTPUT_JSON, "w", encoding="utf-8") as f:
-        json.dump(line_items_json, f, indent=2)
-    print(f"\n LLM Line Items JSON saved → {LLM_OUTPUT_JSON}")
+    if document_type == "invoice":
+        api_payload = ollama.transform_to_api_payload(
+            invoice_api_prompt,
+            structured_data,
+        )
+    else:
+        api_payload = ollama.transform_to_api_payload(
+            expense_api_prompt,
+            structured_data,
+        )
+
     # -------------------------------
-    # STEP 3: BUILD WORD REPORT
+    # SAVE FINAL OUTPUT
     # -------------------------------
-    print("Building Word report...")
-    report = WordReportBuilder(FINAL_DOC)
-    report.add_claim_metadata(claim_metadata)
-    # Line items table
-    config = json.loads(LINEITEM_CONFIG.read_text(encoding="utf-8"))
-    columns = config["columns"]
-    services = (
-    line_items_json.get("verification_of_treatment", {}).get("services_rendered", [])
-    + line_items_json.get("billing_explanation", {}).get("services", [])
-    )
-    cpt_fix_map = {"97O1d": "97010"}
-    for service in services:        
-        service["modifier"] = service.get("modifier", "")
-        service["schedule"] = service.get("description", "")
-        service["rvu"] = service.get("rvu", 6)
-        service["conversion_factor"] = service.get("conversion_factor", 9.55)
-        service["charges"] = f"{float(service['rvu']) * float(service['conversion_factor']):.2f}"
-        service["units"] = service.get("units", "")
-        code = service.get("procedure_code")
-        if code in cpt_fix_map:
-            service["procedure_code"] = cpt_fix_map[code]
-    report.add_line_items(services, columns)
-    report.save()
-    print(f"\n Report generated successfully: {FINAL_DOC}\n")
+    with open(FINAL_JSON, "w", encoding="utf-8") as f:
+        json.dump(api_payload, f, indent=2)
+
+    print(f"\n✅ Bill processed successfully")
+    print(f"📦 Output saved to → {FINAL_JSON}\n")
+
 
 if __name__ == "__main__":
     main()
