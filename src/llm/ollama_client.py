@@ -6,7 +6,7 @@ from typing import Dict, Any
 class OllamaClient:
     def __init__(
         self,
-        host: str = "http://127.0.0.1:11434",
+        host: str = "http://localhost:11434",
         model: str = "llama3.2:3b",
         temperature: float = 0.0,
         context_size: int = 8192,
